@@ -3,7 +3,7 @@
 This is a batch audio noise removal tool, can reduce noise/artifacts by volume treshold.
 Supported I/O formats: `wav`, `flac`, `aiff`.
 
-**Examples**: [Original]() | [Processed](). For velocity layers used `X_021_(velocity_layer)`.
+**Examples**: [Original](https://github.com/Ivan-Spoda/FDenoise/tree/master/examples/Original) | [Processed](https://github.com/Ivan-Spoda/FDenoise/tree/master/examples/Processed). For velocity layers used `X_021_(velocity_layer)`.
 
 ### Settings:
 | **Argument**                 | **Value**  |
