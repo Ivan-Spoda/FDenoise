@@ -1,0 +1,6 @@
+build/*
+.build/*
+.idea/*
+.install/*
+*.txt.user
+*.clang-format
