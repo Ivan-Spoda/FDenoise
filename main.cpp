@@ -30,10 +30,9 @@ struct ProcessSettings
     int outputBitDepth;
 };
 
-struct ChannelContext
+struct FileJob
 {
-    std::vector<double> input;
-    std::vector<double> output;
+    QString inputPath;
     ProcessSettings settings;
 };
 
@@ -53,12 +52,10 @@ inline double linearToDb(double linear)
     return 20.0 * std::log10(linear);
 }
 
-void processChannelWorker(ChannelContext &ctx)
+void processChannel(const std::vector<double> &rawInput,
+                    std::vector<double> &output,
+                    const ProcessSettings &settings)
 {
-    const ProcessSettings &settings = ctx.settings;
-    const std::vector<double> &rawInput = ctx.input;
-    std::vector<double> &output = ctx.output;
-
     int winSize = settings.windowSize;
     int padding = winSize;
 
@@ -121,8 +118,9 @@ void processChannelWorker(ChannelContext &ctx)
         for (int j = 0; j < winSize; ++j) {
             if (pos + j < tempOutput.size()) {
                 double sample = inBuffer[j] * fftScale;
-                tempOutput[pos + j] += sample;
-                weightBuffer[pos + j] += window[j];
+
+                tempOutput[pos + j] += sample * window[j];
+                weightBuffer[pos + j] += window[j] * window[j];
             }
         }
     }
@@ -150,9 +148,10 @@ void processChannelWorker(ChannelContext &ctx)
     fftwPlanMutex.unlock();
 }
 
-void processFile(const QString &filePath, const ProcessSettings &settings)
+void processFileJob(const FileJob &job)
 {
-    QFileInfo fi(filePath);
+    QFileInfo fi(job.inputPath);
+    const ProcessSettings &settings = job.settings;
 
     QString ext;
     int typeMask = settings.outputFormat & SF_FORMAT_TYPEMASK;
@@ -166,10 +165,10 @@ void processFile(const QString &filePath, const ProcessSettings &settings)
     QString outName = settings.outputPath + QDir::separator() + fi.completeBaseName() + ext;
 
 #ifdef _WIN32
-    QByteArray inPathB = filePath.toLocal8Bit();
+    QByteArray inPathB = job.inputPath.toLocal8Bit();
     QByteArray outPathB = outName.toLocal8Bit();
 #else
-    QByteArray inPathB = filePath.toUtf8();
+    QByteArray inPathB = job.inputPath.toUtf8();
     QByteArray outPathB = outName.toUtf8();
 #endif
 
@@ -196,25 +195,27 @@ void processFile(const QString &filePath, const ProcessSettings &settings)
     sf_close(inFile);
 
     int channels = sfInfoIn.channels;
-    QVector<ChannelContext> tasks(channels);
-
+    std::vector<std::vector<double>> channelData(channels);
     for (int c = 0; c < channels; ++c) {
-        tasks[c].settings = settings;
-        tasks[c].input.reserve(readFrames);
+        channelData[c].reserve(readFrames);
     }
 
     for (size_t i = 0; i < (size_t) readFrames * channels; i += channels) {
         for (int c = 0; c < channels; ++c) {
-            tasks[c].input.push_back(interleavedData[i + c]);
+            channelData[c].push_back(interleavedData[i + c]);
         }
     }
 
-    QtConcurrent::blockingMap(tasks, processChannelWorker);
+    std::vector<std::vector<double>> processedChannels(channels);
+
+    for (int c = 0; c < channels; ++c) {
+        processChannel(channelData[c], processedChannels[c], settings);
+    }
 
     size_t maxLen = 0;
     for (int c = 0; c < channels; ++c) {
-        if (tasks[c].output.size() > maxLen)
-            maxLen = tasks[c].output.size();
+        if (processedChannels[c].size() > maxLen)
+            maxLen = processedChannels[c].size();
     }
 
     std::vector<double> outInterleaved;
@@ -222,8 +223,8 @@ void processFile(const QString &filePath, const ProcessSettings &settings)
 
     for (size_t i = 0; i < maxLen; ++i) {
         for (int c = 0; c < channels; ++c) {
-            if (i < tasks[c].output.size())
-                outInterleaved.push_back(tasks[c].output[i]);
+            if (i < processedChannels[c].size())
+                outInterleaved.push_back(processedChannels[c][i]);
             else
                 outInterleaved.push_back(0.0);
         }
@@ -255,7 +256,8 @@ void processFile(const QString &filePath, const ProcessSettings &settings)
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName("FDenoise");
+    QCoreApplication::setApplicationName(TARGET_NAME);
+    QCoreApplication::setApplicationVersion(TARGET_VER);
 
     QCommandLineParser parser;
     parser.addHelpOption();
@@ -269,12 +271,13 @@ int main(int argc, char *argv[])
                       "2"});
 
     parser.addOption({{"res", "resolution"}, "Resolution/Padding (1, 2, 4, 8).", "factor", "1"});
-    parser.addOption({{"to", "timeoverlap"}, "Time Overlap Divisor.", "factor", "4"});
+    parser.addOption(
+        {{"to", "timeoverlap"}, "Time Overlap Divisor (4, 8, 16, 32, 64, 128).", "factor", "4"});
 
     parser.addOption({{"t", "threshold"}, "Spectral Gate Threshold (dB).", "db", "-60"});
 
-    parser.addOption({"ampMin", "Make signal type contrast.", "db", "-90"});
-    parser.addOption({"ampMax", "Make signal type contrast.", "db", "-60"});
+    parser.addOption({"ampMin", "Make signal type contrast (dB).", "db", "-90"});
+    parser.addOption({"ampMax", "Make signal type contrast (dB).", "db", "-60"});
 
     parser.addOption({"format", "wav, flac, aiff.", "fmt", "wav"});
     parser.addOption({"bit", "16, 24, 32.", "depth", "24"});
@@ -348,14 +351,24 @@ int main(int argc, char *argv[])
         settings.outputBitDepth = SF_FORMAT_PCM_16;
 
     QFileInfo inInfo(settings.inputPath);
+    QList<FileJob> jobs;
+
     if (inInfo.isFile()) {
-        processFile(settings.inputPath, settings);
+        FileJob job;
+        job.inputPath = settings.inputPath;
+        job.settings = settings;
+        jobs.append(job);
     } else if (inInfo.isDir()) {
         QDirIterator it(settings.inputPath, {"*.wav", "*.aiff", "*.flac"}, QDir::Files);
         while (it.hasNext()) {
-            processFile(it.next(), settings);
+            FileJob job;
+            job.inputPath = it.next();
+            job.settings = settings;
+            jobs.append(job);
         }
     }
+
+    QtConcurrent::blockingMap(jobs, processFileJob);
 
     return 0;
 }
