@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(FDenoise VERSION 0.0.2 LANGUAGES CXX)
+project(FDenoise VERSION 0.0.3 LANGUAGES CXX)
 
 add_compile_definitions(${PROJECT_NAME} PRIVATE
     TARGET_NAME="${PROJECT_NAME}"

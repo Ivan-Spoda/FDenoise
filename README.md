@@ -26,20 +26,37 @@ FDenoise.exe -i "inputPath" -o "outputPath" --fs 3 --ampMin -90 --ampMax -60 -t 
 
 ### Args table
 
-| **Argument**   | **Description**                                                                        |
-|:---------------|:---------------------------------------------------------------------------------------|
-| `-i`           | Input path.                                                                            |
-| `-o`           | Out path.                                                                              |
-| `-t`           | Filtering bins volume treshold (dB).                                                   |
-| `--fs`         | FFT Size (8192, 16384, 32768, 65536, 131072).                                          |
-| `--res`        | FFT Resolution multiplier/Padding (1, 2, 4, 8).                                        |
-| `--to`         | Time Overlap Divisor (2, 4, 8, 16, 32, 64, 128).                                       |
-| `--ampMin`     | Make signal type contrast (dB).                                                        |
-| `--ampMax`     | Make signal type contrast (dB).                                                        |
-| `--format`     | Change output format (flac, wav, aiff).                                                |
-| `--bit`        | Change output bit-depth (16, 24, 32).                                                  |
+| **Argument**   | **Description**                                                                                              |
+|:---------------|:-------------------------------------------------------------------------------------------------------------|
+| `-i`           | Input path.                                                                                                  |
+| `-o`           | Out path.                                                                                                    |
+| `-t`           | Filtering bins volume treshold (dB).                                                                         |
+| `--fs`         | FFT Size (8192, 16384, 32768, 65536, 131072).                                                                |
+| `--res`        | FFT Resolution multiplier/Padding (1, 2, 4, 8).                                                              |
+| `--to`         | Time Overlap Divisor (2, 4, 8, 16, 32, 64, 128).                                                             |
+| `--ampMin`     | Make signal type contrast (dB).                                                                              |
+| `--ampMax`     | Make signal type contrast (dB).                                                                              |
+| `--format`     | Change output format (flac, wav, aiff).                                                                      |
+| `--ssr`        | Restore source structure, from input (needed use flag `-r`  and select directory only).                      |
+| `-r`           | Can scan files into input folder/dubfolders (needed select directory only).                                  |
+
 
 ### Thirdparty libs
 
 - [fftw3](https://fftw.org/)
 - [libsndfile](https://libsndfile.github.io/libsndfile/)
+
+
+## Version history
+
+### 0.0.3
+- Added flag for recursive scan `-r`.
+- Added flag for copy source directory structure `--ssr`.
+- Added more values for `Window Size`, `Resolution`, `Time Overlap`.
+- Fixed broken paths to saved files (with `\\`).
+
+### 0.0.2
+- Added multithreading.
+
+### 0.0.1
+- Initial release.

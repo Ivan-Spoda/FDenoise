@@ -20,20 +20,19 @@ static QMutex fftwPlanMutex;
 
 struct ProcessSettings
 {
-    QString inputPath;
-    QString outputPath;
     int windowSize;
     int resolutionFactor;
     int hopDivisor;
     double thresholdDB;
-    int outputFormat;
-    int outputBitDepth;
 };
 
 struct FileJob
 {
     QString inputPath;
+    QString outputPath;
     ProcessSettings settings;
+    int outputFormat;
+    int outputBitDepth;
 };
 
 std::vector<double> makeHannWindow(int size)
@@ -153,23 +152,12 @@ void processFileJob(const FileJob &job)
     QFileInfo fi(job.inputPath);
     const ProcessSettings &settings = job.settings;
 
-    QString ext;
-    int typeMask = settings.outputFormat & SF_FORMAT_TYPEMASK;
-    if (typeMask == SF_FORMAT_FLAC)
-        ext = ".flac";
-    else if (typeMask == SF_FORMAT_AIFF)
-        ext = ".aiff";
-    else
-        ext = ".wav";
-
-    QString outName = settings.outputPath + QDir::separator() + fi.completeBaseName() + ext;
-
 #ifdef _WIN32
     QByteArray inPathB = job.inputPath.toLocal8Bit();
-    QByteArray outPathB = outName.toLocal8Bit();
+    QByteArray outPathB = job.outputPath.toLocal8Bit();
 #else
     QByteArray inPathB = job.inputPath.toUtf8();
-    QByteArray outPathB = outName.toUtf8();
+    QByteArray outPathB = job.outputPath.toUtf8();
 #endif
 
     SF_INFO sfInfoIn;
@@ -181,7 +169,7 @@ void processFileJob(const FileJob &job)
         return;
     }
 
-    qInfo() << "Processing:" << fi.fileName() << "| Res: x" << settings.resolutionFactor
+    qInfo() << "Processing:" << fi.fileName() << "| Res:" << settings.resolutionFactor
             << "| Win:" << settings.windowSize << "| Threshold:" << settings.thresholdDB << "dB";
 
     sf_count_t numFrames = sfInfoIn.frames;
@@ -234,8 +222,8 @@ void processFileJob(const FileJob &job)
     std::memset(&sfInfoOut, 0, sizeof(sfInfoOut));
     sfInfoOut.channels = channels;
     sfInfoOut.samplerate = sfInfoIn.samplerate;
-    sfInfoOut.format = (settings.outputFormat & SF_FORMAT_TYPEMASK)
-                       | (settings.outputBitDepth & SF_FORMAT_SUBMASK);
+    sfInfoOut.format = (job.outputFormat & SF_FORMAT_TYPEMASK)
+                       | (job.outputBitDepth & SF_FORMAT_SUBMASK);
 
     if (!sf_format_check(&sfInfoOut)) {
         sfInfoOut.format = SF_FORMAT_WAV | SF_FORMAT_PCM_24;
@@ -243,14 +231,14 @@ void processFileJob(const FileJob &job)
 
     SNDFILE *outFile = sf_open(outPathB.constData(), SFM_WRITE, &sfInfoOut);
     if (!outFile) {
-        qCritical() << "Write error:" << outName;
+        qCritical() << "Write error:" << job.outputPath;
         return;
     }
 
     sf_writef_double(outFile, outInterleaved.data(), maxLen);
     sf_close(outFile);
 
-    qInfo() << "Saved:" << outName;
+    qInfo().noquote() << "Saved:" << QDir::toNativeSeparators(QDir::cleanPath(job.outputPath));
 }
 
 int main(int argc, char *argv[])
@@ -258,42 +246,51 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(TARGET_NAME);
     QCoreApplication::setApplicationVersion(TARGET_VER);
-
     QCommandLineParser parser;
     parser.addHelpOption();
-
-    parser.addOption({{"i", "input"}, "Input path.", "path"});
-    parser.addOption({{"o", "output"}, "Output path.", "path"});
-
+    parser.addOption({{"i", "input"}, "Input path (file or directory).", "path"});
+    parser.addOption({{"o", "output"}, "Output path (directory).", "path"});
+    parser.addOption({{"r", "recursive"}, "Enable recursive scanning (if input is directory)."});
+    parser.addOption(
+        {{"ssr", "source-structure-restore"}, "Restore source directory structure (requires -r)."});
     parser.addOption({{"fs", "fftsize"},
-                      "Window Size Index (0 = 8192, 1 = 16384, 2 = 32768, 3 = 65536, 4 = 131072).",
+                      "Window Size Index (0 = 8192, 1 = 16384, 2 = 32768, 3 = 65536, 4 = 131072, 5 "
+                      "= 262144, 6 = 524288, 7 = 1048576).",
                       "index",
                       "2"});
-
-    parser.addOption({{"res", "resolution"}, "Resolution/Padding (1, 2, 4, 8).", "factor", "1"});
+    parser.addOption(
+        {{"res", "resolution"}, "Resolution/Padding (1, 2, 4, 8, 16, 32).", "factor", "1"});
     parser.addOption(
         {{"to", "timeoverlap"}, "Time Overlap Divisor (4, 8, 16, 32, 64, 128).", "factor", "4"});
-
     parser.addOption({{"t", "threshold"}, "Spectral Gate Threshold (dB).", "db", "-60"});
-
-    parser.addOption({"ampMin", "Make signal type contrast (dB).", "db", "-90"});
-    parser.addOption({"ampMax", "Make signal type contrast (dB).", "db", "-60"});
-
+    parser.addOption({"ampMin", "Make signal type contrast (dB).", "-90"});
+    parser.addOption({"ampMax", "Make signal type contrast (dB).", "-60"});
     parser.addOption({"format", "wav, flac, aiff.", "fmt", "wav"});
-    parser.addOption({"bit", "16, 24, 32.", "depth", "24"});
-
+    parser.addOption({"bit", "16, 24, 32 (Default is 24).", "depth", "24"});
     parser.process(app);
 
-    ProcessSettings settings;
-    settings.inputPath = parser.value("i");
-    settings.outputPath = parser.value("o");
+    QString inputPath = parser.value("i");
+    QString outputPath = parser.value("o");
 
-    if (settings.inputPath.isEmpty() || settings.outputPath.isEmpty())
+    if (inputPath.isEmpty() || outputPath.isEmpty()) {
+        qCritical() << "Error: Input (-i) or Output (-o) are required.";
         return 1;
+    }
 
-    QDir outDir(settings.outputPath);
+    QFileInfo inInfo(inputPath);
+    if (!inInfo.exists()) {
+        qCritical() << "Error: Input path does not exist.";
+        return 1;
+    }
+
+    QDir outDir(outputPath);
     if (!outDir.exists())
         outDir.mkpath(".");
+
+    bool recursive = parser.isSet("r");
+    bool ssr = parser.isSet("ssr");
+
+    ProcessSettings settings;
 
     int fsIdx = parser.value("fs").toInt();
     switch (fsIdx) {
@@ -312,6 +309,16 @@ int main(int argc, char *argv[])
     case 4:
         settings.windowSize = 131072;
         break;
+    case 5:
+        settings.windowSize = 262144;
+        break;
+    case 6:
+        settings.windowSize = 524288;
+        break;
+    case 7:
+        settings.windowSize = 1048576;
+        break;
+
     default:
         settings.windowSize = 32768;
         break;
@@ -320,8 +327,8 @@ int main(int argc, char *argv[])
     settings.resolutionFactor = parser.value("res").toInt();
     if (settings.resolutionFactor != 1 && settings.resolutionFactor != 2
         && settings.resolutionFactor != 4 && settings.resolutionFactor != 8) {
-        if (settings.resolutionFactor > 8)
-            settings.resolutionFactor = 8;
+        if (settings.resolutionFactor > 32)
+            settings.resolutionFactor = 32;
         else if (settings.resolutionFactor < 1)
             settings.resolutionFactor = 1;
     }
@@ -329,43 +336,94 @@ int main(int argc, char *argv[])
     settings.hopDivisor = parser.value("to").toInt();
     if (settings.hopDivisor < 2)
         settings.hopDivisor = 4;
+    else if (settings.hopDivisor > 128)
+        settings.hopDivisor = 128;
 
     settings.thresholdDB = parser.value("t").toDouble();
 
+    int outFmt;
     QString fmtStr = parser.value("format").toLower();
-    if (fmtStr == "flac")
-        settings.outputFormat = SF_FORMAT_FLAC;
-    else if (fmtStr == "aiff")
-        settings.outputFormat = SF_FORMAT_AIFF;
-    else
-        settings.outputFormat = SF_FORMAT_WAV;
+    QString outExt;
+    if (fmtStr == "flac") {
+        outFmt = SF_FORMAT_FLAC;
+        outExt = ".flac";
+    } else if (fmtStr == "aiff") {
+        outFmt = SF_FORMAT_AIFF;
+        outExt = ".aiff";
+    } else {
+        outFmt = SF_FORMAT_WAV;
+        outExt = ".wav";
+    }
 
+    int outDepth;
     QString bitStr = parser.value("bit");
     if (bitStr == "24")
-        settings.outputBitDepth = SF_FORMAT_PCM_24;
+        outDepth = SF_FORMAT_PCM_24;
     else if (bitStr == "32")
-        settings.outputBitDepth = SF_FORMAT_PCM_32;
+        outDepth = SF_FORMAT_PCM_32;
     else if (bitStr == "float")
-        settings.outputBitDepth = SF_FORMAT_FLOAT;
+        outDepth = SF_FORMAT_FLOAT;
     else
-        settings.outputBitDepth = SF_FORMAT_PCM_16;
+        outDepth = SF_FORMAT_PCM_24;
 
-    QFileInfo inInfo(settings.inputPath);
     QList<FileJob> jobs;
 
-    if (inInfo.isFile()) {
+    auto addJob = [&](const QFileInfo &sourceFi, const QString &destPath) {
         FileJob job;
-        job.inputPath = settings.inputPath;
+        job.inputPath = sourceFi.absoluteFilePath();
+        job.outputPath = destPath;
         job.settings = settings;
+        job.outputFormat = outFmt;
+        job.outputBitDepth = outDepth;
         jobs.append(job);
+    };
+
+    if (inInfo.isFile()) {
+        QString finalOutPath = QDir(outputPath).filePath(inInfo.completeBaseName() + outExt);
+        addJob(inInfo, finalOutPath);
     } else if (inInfo.isDir()) {
-        QDirIterator it(settings.inputPath, {"*.wav", "*.aiff", "*.flac"}, QDir::Files);
-        while (it.hasNext()) {
-            FileJob job;
-            job.inputPath = it.next();
-            job.settings = settings;
-            jobs.append(job);
+        QDirIterator::IteratorFlags flags = QDirIterator::NoIteratorFlags;
+        if (recursive) {
+            flags = QDirIterator::Subdirectories;
         }
+
+        QDirIterator it(inputPath, {"*.wav", "*.aiff", "*.flac"}, QDir::Files, flags);
+        QDir rootInputDir(inputPath);
+
+        while (it.hasNext()) {
+            QString currentPath = it.next();
+            QFileInfo currentFi(currentPath);
+            QString finalOutPath;
+
+            if (recursive && ssr) {
+                QString relativePath = rootInputDir.relativeFilePath(currentPath);
+
+                QString relPathNoExt = QFileInfo(relativePath).path() + QDir::separator()
+                                       + QFileInfo(relativePath).completeBaseName();
+                if (QFileInfo(relativePath).path() == ".") {
+                    relPathNoExt = QFileInfo(relativePath).completeBaseName();
+                }
+
+                QString finalRelPath = relPathNoExt + outExt;
+
+                finalOutPath = QDir(outputPath).filePath(finalRelPath);
+
+                QFileInfo destFi(finalOutPath);
+                QDir destDir = destFi.dir();
+                if (!destDir.exists()) {
+                    destDir.mkpath(".");
+                }
+            } else {
+                finalOutPath = QDir(outputPath).filePath(currentFi.completeBaseName() + outExt);
+            }
+
+            addJob(currentFi, finalOutPath);
+        }
+    }
+
+    if (jobs.isEmpty()) {
+        qWarning() << "No files found to process.";
+        return 0;
     }
 
     QtConcurrent::blockingMap(jobs, processFileJob);
