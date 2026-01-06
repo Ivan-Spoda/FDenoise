@@ -31,8 +31,8 @@ FDenoise.exe -i "inputPath" -o "outputPath" --fs 3 --ampMin -90 --ampMax -60 -t 
 | `-i`           | Input path.                                                                                                  |
 | `-o`           | Out path.                                                                                                    |
 | `-t`           | Filtering bins volume treshold (dB).                                                                         |
-| `--fs`         | FFT Size (8192, 16384, 32768, 65536, 131072).                                                                |
-| `--res`        | FFT Resolution multiplier/Padding (1, 2, 4, 8).                                                              |
+| `--fs`         | FFT Size (8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576).                                       |
+| `--res`        | FFT Resolution multiplier/Padding (1, 2, 4, 8, 16, 32).                                                      |
 | `--to`         | Time Overlap Divisor (2, 4, 8, 16, 32, 64, 128).                                                             |
 | `--ampMin`     | Make signal type contrast (dB).                                                                              |
 | `--ampMax`     | Make signal type contrast (dB).                                                                              |
@@ -52,7 +52,7 @@ FDenoise.exe -i "inputPath" -o "outputPath" --fs 3 --ampMin -90 --ampMax -60 -t 
 ### 0.0.3
 - Added flag for recursive scan `-r`.
 - Added flag for copy source directory structure `--ssr`.
-- Added more values for `Window Size`, `Resolution`, `Time Overlap`.
+- Added more values for `Window Size`, `Resolution`.
 - Fixed broken paths to saved files (with `\\`).
 
 ### 0.0.2
