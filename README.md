@@ -38,7 +38,7 @@ FDenoise.exe -i "inputPath" -o "outputPath" --fs 3 --ampMin -90 --ampMax -60 -t 
 | `--ampMax`     | Make signal type contrast (dB).                                                                              |
 | `--format`     | Change output format (flac, wav, aiff).                                                                      |
 | `--ssr`        | Restore source structure, from input (needed use flag `-r`  and select directory only).                      |
-| `-r`           | Can scan files into input folder/dubfolders (needed select directory only).                                  |
+| `-r`           | Can scan files into input folder/subfolders (needed select directory only).                                  |
 
 
 ### Thirdparty libs
