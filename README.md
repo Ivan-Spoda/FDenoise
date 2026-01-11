@@ -31,14 +31,15 @@ FDenoise.exe -i "inputPath" -o "outputPath" --fs 3 --ampMin -90 --ampMax -60 -t 
 | `-i`           | Input path.                                                                                                  |
 | `-o`           | Out path.                                                                                                    |
 | `-t`           | Filtering bins volume treshold (dB).                                                                         |
+| `-r`           | Can scan files into input folder/subfolders (needed select directory only).                                  |
+| `-m`           | Mode, in which the signal contrast (mask) using `ampMin`, `ampMax` is not deleted, the rest is deleted.      |
 | `--fs`         | FFT Size (8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576).                                       |
 | `--res`        | FFT Resolution multiplier/Padding (1, 2, 4, 8, 16, 32).                                                      |
 | `--to`         | Time Overlap Divisor (2, 4, 8, 16, 32, 64, 128).                                                             |
-| `--ampMin`     | Make signal type contrast (dB).                                                                              |
-| `--ampMax`     | Make signal type contrast (dB).                                                                              |
+| `--ampMin`     | Used for mask, make tonal/noisy signal contrast (dB).                                                        |
+| `--ampMax`     | Used for mask, make tonal/noisy signal contrast (dB).                                                        |
 | `--format`     | Change output format (flac, wav, aiff).                                                                      |
 | `--ssr`        | Restore source structure, from input (needed use flag `-r`  and select directory only).                      |
-| `-r`           | Can scan files into input folder/subfolders (needed select directory only).                                  |
 
 
 ### Thirdparty libs
@@ -48,6 +49,9 @@ FDenoise.exe -i "inputPath" -o "outputPath" --fs 3 --ampMin -90 --ampMax -60 -t 
 
 
 ## Version history
+
+## 0.0.4
+- Added flag to make tonal/noisy signal mask (based on ampMin/Max).
 
 ### 0.0.3
 - Added flag for recursive scan `-r`.

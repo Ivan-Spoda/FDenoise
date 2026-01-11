@@ -24,6 +24,9 @@ struct ProcessSettings
     int resolutionFactor;
     int hopDivisor;
     double thresholdDB;
+    double ampMinDB;
+    double ampMaxDB;
+    bool useMask;
 };
 
 struct FileJob
@@ -106,7 +109,19 @@ void processChannel(const std::vector<double> &rawInput,
             double magNorm = mag * (2.0 / winSize);
             double db = linearToDb(magNorm);
 
-            if (db < settings.thresholdDB) {
+            bool keep = false;
+
+            if (db >= settings.thresholdDB) {
+                keep = true;
+            }
+
+            if (settings.useMask) {
+                if (db >= settings.ampMinDB) {
+                    keep = true;
+                }
+            }
+
+            if (!keep) {
                 outSpec[k][0] = 0.0;
                 outSpec[k][1] = 0.0;
             }
@@ -170,7 +185,7 @@ void processFileJob(const FileJob &job)
     }
 
     qInfo() << "Processing:" << fi.fileName() << "| Res:" << settings.resolutionFactor
-            << "| Win:" << settings.windowSize << "| Threshold:" << settings.thresholdDB << "dB";
+            << "| Win:" << settings.windowSize << "| Threshold:" << settings.thresholdDB;
 
     sf_count_t numFrames = sfInfoIn.frames;
     if (numFrames == 0) {
@@ -260,11 +275,18 @@ int main(int argc, char *argv[])
                       "2"});
     parser.addOption(
         {{"res", "resolution"}, "Resolution/Padding (1, 2, 4, 8, 16, 32).", "factor", "1"});
-    parser.addOption(
-        {{"to", "timeoverlap"}, "Time Overlap Divisor (4, 8, 16, 32, 64, 128).", "factor", "4"});
+    parser.addOption({{"to", "timeoverlap"},
+                      "Time Overlap Divisor (4, 8, 16, 32, 64, 128, 256, 512).",
+                      "factor",
+                      "4"});
     parser.addOption({{"t", "threshold"}, "Spectral Gate Threshold (dB).", "db", "-60"});
-    parser.addOption({"ampMin", "Make signal type contrast (dB).", "-90"});
-    parser.addOption({"ampMax", "Make signal type contrast (dB).", "-60"});
+
+    parser.addOption({{"m", "mask"}, "Enable amplitude masking using ampMin/ampMax."});
+    parser.addOption(
+        {"ampMin", "Used for mask, make tonal/noisy signal contrast (dB).", "db", "-90"});
+    parser.addOption(
+        {"ampMax", "Used for mask, make tonal/noisy signal contrast (dB).", "db", "-60"});
+
     parser.addOption({"format", "wav, flac, aiff.", "fmt", "wav"});
     parser.addOption({"bit", "16, 24, 32 (Default is 24).", "depth", "24"});
     parser.process(app);
@@ -334,12 +356,15 @@ int main(int argc, char *argv[])
     }
 
     settings.hopDivisor = parser.value("to").toInt();
-    if (settings.hopDivisor < 2)
+    if (settings.hopDivisor < 4)
         settings.hopDivisor = 4;
-    else if (settings.hopDivisor > 128)
-        settings.hopDivisor = 128;
+    else if (settings.hopDivisor > 512)
+        settings.hopDivisor = 512;
 
     settings.thresholdDB = parser.value("t").toDouble();
+    settings.ampMinDB = parser.value("ampMin").toDouble();
+    settings.ampMaxDB = parser.value("ampMax").toDouble();
+    settings.useMask = parser.isSet("m");
 
     int outFmt;
     QString fmtStr = parser.value("format").toLower();
